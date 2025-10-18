@@ -222,4 +222,4 @@ require_once plugin_dir_path(__FILE__) . 'checkout-page.php'; // Include checkou
 require_once plugin_dir_path(__FILE__) . 'cart-page.php'; // Include cart page tracking class
 require_once plugin_dir_path(__FILE__) . 'product-page.php'; // Include product page tracking class
 require_once plugin_dir_path(__FILE__) . 'category.php'; // Include category page tracking class
-require_once plugin_dir_path(__FILE__) . 'order-received-page.php'; // Include category page tracking class
+require_once plugin_dir_path(__FILE__) . 'order-received-page.php'; // Include order received tracking class
