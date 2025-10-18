@@ -170,30 +170,28 @@ function kepixel_write_key_not_set()
     // Get the current screen
     $screen = get_current_screen();
     // Skip on some screens to avoid too many notices
-    if ($screen && in_array($screen->id, ['plugins', 'update-core'])) {
+    if ($screen && in_array($screen->id, ['plugins', 'update-core'], true)) {
         return;
     }
 
     $write_key = get_option('kepixel_write_key');
     if (empty($write_key)) {
+        $settings_url = esc_url(admin_url('options-general.php?page=kepixel'));
+        $message = sprintf(
+            /* translators: %s: Link to the Kepixel settings page. */
+            __('Kepixel requires a Write Key to function properly. Please <a href="%s">set your Write Key</a> to enable tracking.', 'kepixel'),
+            $settings_url
+        );
+
         echo '<div class="notice notice-warning">';
-        echo '<p>';
-        echo 'Kepixel ';
-        esc_html_e('requires a Write Key to function properly. Please', 'kepixel');
-        echo ' <a href="' . admin_url('options-general.php?page=kepixel') . '">';
-        esc_html_e('set your Write Key', 'kepixel');
-        echo '</a> ';
-        esc_html_e('to enable tracking.', 'kepixel');
-        echo '</p>';
+        echo '<p>' . wp_kses($message, array('a' => array('href' => array()))) . '</p>';
         echo '</div>';
     }
 }
 add_action('admin_notices', 'kepixel_write_key_not_set');
 
 require_once plugin_dir_path(__FILE__) . 'includes/class-kepixel.php'; // Include Kepixel class
-
-if (kepixel_is_woocommerce_installed()) {
-} else {
+if (!kepixel_is_woocommerce_installed()) {
     /**
      * Display an admin notice if WooCommerce is not installed or activated
      */
@@ -205,17 +203,24 @@ if (kepixel_is_woocommerce_installed()) {
             return;
         }
 
-        ?>
-        <div class="notice notice-info is-dismissible kepixel-notice">
-            <p>
-                <?php
-                echo 'Kepixel ';
-                esc_html_e('can work with', 'kepixel');
-                echo ' <a href="https://woocommerce.com/" target="_blank">WooCommerce</a>.';
-                ?>
-            </p>
-        </div>
-        <?php
+        $woocommerce_url = esc_url('https://woocommerce.com/');
+        $woocommerce_link = sprintf(
+            '<a href="%1$s" target="%2$s" rel="%3$s">%4$s</a>',
+            $woocommerce_url,
+            esc_attr('_blank'),
+            esc_attr('noopener noreferrer'),
+            esc_html__('WooCommerce', 'kepixel')
+        );
+
+        $message = sprintf(
+            /* translators: %s: Link to the WooCommerce website. */
+            __('Kepixel can work with %s.', 'kepixel'),
+            $woocommerce_link
+        );
+
+        echo '<div class="notice notice-info is-dismissible kepixel-notice">';
+        echo '<p>' . wp_kses($message, array('a' => array('href' => array(), 'target' => array(), 'rel' => array()))) . '</p>';
+        echo '</div>';
     }
     add_action('admin_notices', 'kepixel_woocommerce_not_detected');
 
@@ -229,7 +234,7 @@ if (kepixel_is_woocommerce_installed()) {
                 $('.kepixel-notice').on('click', '.notice-dismiss', function() {
                     $.post(ajaxurl, {
                         action: 'kepixel_dismiss_notice',
-                        nonce: '<?php echo wp_create_nonce("kepixel_dismiss_nonce"); ?>'
+                        nonce: '<?php echo esc_js(wp_create_nonce('kepixel_dismiss_nonce')); ?>'
                     });
                 });
             });
