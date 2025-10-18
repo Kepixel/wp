@@ -4,7 +4,7 @@ defined('ABSPATH') || die();
 /**
  * Plugin Name: Kepixel
  * Description: Kepixel is an analytics, statistics plugin for WordPress and eCommerce tracking with WooCommerce. Optimize your sales with powerful analytics!
- * Version: 1.0.0
+ * Version: 1.0.1
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: kepixel-bot
