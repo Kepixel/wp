@@ -4,7 +4,7 @@ defined('ABSPATH') || die();
 /**
  * Plugin Name: Kepixel
  * Description: Kepixel is an analytics, statistics plugin for WordPress and eCommerce tracking with WooCommerce. Optimize your sales with powerful analytics!
- * Version: 1.0.0
+ * Version: 1.0.1
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: kepixel-bot
@@ -42,11 +42,11 @@ add_filter("plugin_action_links_$plugin", 'kepixel_add_settings_link');
 function kepixel_add_settings_page()
 {
     add_options_page(
-        __('Kepixel Settings', 'kepixel'),
-        __('Kepixel', 'kepixel'),
-        'manage_options',
-        'kepixel',
-        'kepixel_render_settings_page'
+            __('Kepixel Settings', 'kepixel'),
+            __('Kepixel', 'kepixel'),
+            'manage_options',
+            'kepixel',
+            'kepixel_render_settings_page'
     );
 }
 add_action('admin_menu', 'kepixel_add_settings_page');
@@ -75,39 +75,39 @@ function kepixel_render_settings_page()
  */
 function kepixel_register_settings()
 {
-    register_setting('kepixel_options', 'kepixel_app_id', array(
-        'type' => 'string',
-        'sanitize_callback' => 'sanitize_text_field',
-        'default' => ''
+    register_setting('kepixel_options', 'kepixel_write_key', array(
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default' => ''
     ));
 
     register_setting('kepixel_options', 'kepixel_enable_tracking', array(
-        'type' => 'boolean',
-        'sanitize_callback' => 'rest_sanitize_boolean',
-        'default' => true
+            'type' => 'boolean',
+            'sanitize_callback' => 'rest_sanitize_boolean',
+            'default' => true
     ));
 
     add_settings_section(
-        'kepixel_settings_section',
-        __('Kepixel Settings', 'kepixel'),
-        'kepixel_settings_section_callback',
-        'kepixel'
+            'kepixel_settings_section',
+            __('Kepixel Settings', 'kepixel'),
+            'kepixel_settings_section_callback',
+            'kepixel'
     );
 
     add_settings_field(
-        'kepixel_app_id',
-        __('App ID', 'kepixel'),
-        'kepixel_app_id_callback',
-        'kepixel',
-        'kepixel_settings_section'
+            'kepixel_write_key',
+            __('Write Key', 'kepixel'),
+            'kepixel_write_key_callback',
+            'kepixel',
+            'kepixel_settings_section'
     );
 
     add_settings_field(
-        'kepixel_enable_tracking',
-        __('Enable Tracking', 'kepixel'),
-        'kepixel_enable_tracking_callback',
-        'kepixel',
-        'kepixel_settings_section'
+            'kepixel_enable_tracking',
+            __('Enable Tracking', 'kepixel'),
+            'kepixel_enable_tracking_callback',
+            'kepixel',
+            'kepixel_settings_section'
     );
 }
 add_action('admin_init', 'kepixel_register_settings');
@@ -117,16 +117,16 @@ add_action('admin_init', 'kepixel_register_settings');
  */
 function kepixel_settings_section_callback()
 {
-    echo '<p>' . __('Enter your Kepixel App ID below. You can find this in your Kepixel account.', 'kepixel') . '</p>';
+    echo '<p>' . __('Enter your Kepixel Write Key below. You can find this in your Kepixel account.', 'kepixel') . '</p>';
 }
 
 /**
- * App ID field callback
+ * Write Key field callback
  */
-function kepixel_app_id_callback()
+function kepixel_write_key_callback()
 {
-    $app_id = get_option('kepixel_app_id');
-    echo '<input type="text" id="kepixel_app_id" name="kepixel_app_id" value="' . esc_attr($app_id) . '" class="regular-text">';
+    $write_key = get_option('kepixel_write_key');
+    echo '<input type="text" id="kepixel_write_key" name="kepixel_write_key" value="' . esc_attr($write_key) . '" class="regular-text">';
 }
 
 /**
@@ -149,9 +149,18 @@ function kepixel_is_woocommerce_installed()
 }
 
 /**
- * Display an admin notice if Kepixel App ID is not set
+ * Check if cf7 is installed and activated
  */
-function kepixel_app_id_not_set()
+function kepixel_is_cf7_installed()
+{
+    include_once(ABSPATH . 'wp-admin/includes/plugin.php');
+    return is_plugin_active('contact-form-7/wp-contact-form-7.php');
+}
+
+/**
+ * Display an admin notice if Kepixel Write Key is not set
+ */
+function kepixel_write_key_not_set()
 {
     // Only show this notice in the admin area
     if (!is_admin()) {
@@ -165,24 +174,25 @@ function kepixel_app_id_not_set()
         return;
     }
 
-    $app_id = get_option('kepixel_app_id');
-    if (empty($app_id)) {
+    $write_key = get_option('kepixel_write_key');
+    if (empty($write_key)) {
         echo '<div class="notice notice-warning">';
         echo '<p>';
         echo 'Kepixel ';
-        esc_html_e('requires an App ID to function properly. Please', 'kepixel');
+        esc_html_e('requires a Write Key to function properly. Please', 'kepixel');
         echo ' <a href="' . admin_url('options-general.php?page=kepixel') . '">';
-        esc_html_e('set your App ID', 'kepixel');
+        esc_html_e('set your Write Key', 'kepixel');
         echo '</a> ';
         esc_html_e('to enable tracking.', 'kepixel');
         echo '</p>';
         echo '</div>';
     }
 }
-add_action('admin_notices', 'kepixel_app_id_not_set');
+add_action('admin_notices', 'kepixel_write_key_not_set');
+
+require_once plugin_dir_path(__FILE__) . 'includes/class-kepixel.php'; // Include Kepixel class
 
 if (kepixel_is_woocommerce_installed()) {
-    require_once plugin_dir_path(__FILE__) . 'includes/class-kepixel.php'; // Include Kepixel class
 } else {
     /**
      * Display an admin notice if WooCommerce is not installed or activated

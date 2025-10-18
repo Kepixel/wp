@@ -6,538 +6,220 @@ defined('ABSPATH') || die();
  */
 function kepixel_add_tracking_code()
 {
-    $app_id = get_option('kepixel_app_id');
+    $write_key = get_option('kepixel_write_key');
     $enable_tracking = get_option('kepixel_enable_tracking', true);
 
-    // Only add tracking code if app ID is set and tracking is enabled
-    if (empty($app_id) || !$enable_tracking) {
+    // Only add tracking code if Write Key is set and tracking is enabled
+    if (empty($write_key) || !$enable_tracking) {
         return;
     }
     ?>
 
+    <script src="https://anubis.kepixel.com?writeKey=<?php echo esc_js($write_key); ?>"></script>
+
     <!-- Kepixel -->
     <script>
-        var _paq = window._paq = window._paq || [];
+        var kepixelAnalytics = window.kepixelAnalytics = window.kepixelAnalytics || [];
+        function extractPhoneNumberFlexible(traits) {
+            if (traits && typeof traits === 'object') {
+                const email = traits.email || '';
+                const username = traits.username || '';
+                const phoneRegex = /\+\d{7,15}/;
+                const emailMatch = email.match(phoneRegex);
+                if (emailMatch) {
+                    return emailMatch[0];
+                }
+                const usernameMatch = username.match(phoneRegex);
+                if (usernameMatch) {
+                    return usernameMatch[0];
+                }
+                if (/^\d{10,15}$/.test(username)) {
+                    return username;
+                }
+            }
+            return null;
+        }
         <?php
-        // Set user ID based on user email if user is logged in
         if (is_user_logged_in()) {
-            $current_user = wp_get_current_user();
-            echo "_paq.push(['setUserId', '" . esc_js($current_user->user_email) . "']);\n";
+        $current_user = wp_get_current_user();
+        $user_id = $current_user->ID;
+        $first_name = $current_user->first_name ?? $current_user->user_firstname ?? $current_user->user_nicename ?? $current_user->display_name ?? $current_user->nickname;
+        $last_name = $current_user->last_name ?? $current_user->user_lastname;
+        $email = $current_user->user_email;
+        $username = $current_user->user_login;
+        $website = $current_user->user_url;
+        $description = $current_user->description;
+        $created_at = $current_user->user_registered;
+
+        // Get phone number from user meta (if available)
+        $phone = get_user_meta($user_id, 'phone', true);
+        if (empty($phone)) {
+            $phone = get_user_meta($user_id, 'billing_phone', true); // WooCommerce billing phone
+        }
+
+        // Get additional user traits from meta
+        $age = get_user_meta($user_id, 'age', true);
+        $birthday = get_user_meta($user_id, 'birthday', true);
+        $gender = get_user_meta($user_id, 'gender', true);
+        $title = get_user_meta($user_id, 'title', true);
+
+        // Get avatar URL
+        $avatar = get_avatar_url($user_id, array('size' => 256));
+
+        // Enhanced WooCommerce data retrieval if WooCommerce is installed
+        $wc_customer = null;
+        $is_paying_customer = false;
+        $total_spent = 0;
+        $order_count = 0;
+
+        if (kepixel_is_woocommerce_installed() && class_exists('WC_Customer')) {
+            try {
+                $wc_customer = new WC_Customer($user_id);
+                $is_paying_customer = $wc_customer->get_is_paying_customer();
+
+                // Get customer statistics if functions exist
+                if (function_exists('wc_get_customer_total_spent')) {
+                    $total_spent = wc_get_customer_total_spent($user_id);
+                }
+                if (function_exists('wc_get_customer_order_count')) {
+                    $order_count = wc_get_customer_order_count($user_id);
+                }
+            } catch (Exception $e) {
+                // Fallback to regular user meta if WC_Customer fails
+                $wc_customer = null;
+            }
+        }
+
+        // Build address object from WooCommerce billing/shipping data
+        $billing_address_1 = get_user_meta($user_id, 'billing_address_1', true);
+        $billing_address_2 = get_user_meta($user_id, 'billing_address_2', true);
+        $billing_city = get_user_meta($user_id, 'billing_city', true);
+        $billing_state = get_user_meta($user_id, 'billing_state', true);
+        $billing_postcode = get_user_meta($user_id, 'billing_postcode', true);
+        $billing_country = get_user_meta($user_id, 'billing_country', true);
+
+        // Use shipping address as fallback if billing is empty and WooCommerce is available
+        if (empty($billing_address_1) && kepixel_is_woocommerce_installed()) {
+            $shipping_address_1 = get_user_meta($user_id, 'shipping_address_1', true);
+            $shipping_address_2 = get_user_meta($user_id, 'shipping_address_2', true);
+            $shipping_city = get_user_meta($user_id, 'shipping_city', true);
+            $shipping_state = get_user_meta($user_id, 'shipping_state', true);
+            $shipping_postcode = get_user_meta($user_id, 'shipping_postcode', true);
+            $shipping_country = get_user_meta($user_id, 'shipping_country', true);
+
+            if (!empty($shipping_address_1)) {
+                $billing_address_1 = $shipping_address_1;
+                $billing_address_2 = $shipping_address_2;
+                $billing_city = $shipping_city;
+                $billing_state = $shipping_state;
+                $billing_postcode = $shipping_postcode;
+                $billing_country = $shipping_country;
+            }
+        }
+
+        $street = trim($billing_address_1 . ' ' . $billing_address_2);
+
+        // Build company object from user meta
+        $company_name = get_user_meta($user_id, 'billing_company', true);
+        if (empty($company_name)) {
+            $company_name = get_user_meta($user_id, 'company_name', true);
+        }
+        // Add shipping company as fallback if WooCommerce is available
+        if (empty($company_name) && kepixel_is_woocommerce_installed()) {
+            $company_name = get_user_meta($user_id, 'shipping_company', true);
+        }
+
+        $company_id = get_user_meta($user_id, 'company_id', true);
+        $company_industry = get_user_meta($user_id, 'company_industry', true);
+        $company_employee_count = get_user_meta($user_id, 'company_employee_count', true);
+        $company_plan = get_user_meta($user_id, 'company_plan', true);
+
+        // Build full name
+        $full_name = trim($first_name . ' ' . $last_name);
+        ?>
+
+        // User identification
+        const userId = "<?php echo esc_js($user_id); ?>";
+        const traits = {
+            id: "<?php echo esc_js($user_id); ?>",
+            <?php if (!empty($first_name)) { ?>firstName: "<?php echo esc_js($first_name); ?>",<?php } ?>
+            <?php if (!empty($last_name)) { ?>lastName: "<?php echo esc_js($last_name); ?>",<?php } ?>
+            <?php if (!empty($full_name)) { ?>name: "<?php echo esc_js($full_name); ?>",<?php } ?>
+            <?php if (!empty($age)) { ?>age: <?php echo intval($age); ?>,<?php } ?>
+            email: "<?php echo esc_js($email); ?>",
+            <?php if (!empty($phone)) { ?>phone: "<?php echo esc_js($phone); ?>",<?php } ?>
+            <?php if (!empty($street) || !empty($billing_city) || !empty($billing_state) || !empty($billing_postcode) || !empty($billing_country)) { ?>
+            address: {
+                <?php if (!empty($street)) { ?>street: "<?php echo esc_js($street); ?>",<?php } ?>
+                <?php if (!empty($billing_city)) { ?>city: "<?php echo esc_js($billing_city); ?>",<?php } ?>
+                <?php if (!empty($billing_state)) { ?>state: "<?php echo esc_js($billing_state); ?>",<?php } ?>
+                <?php if (!empty($billing_postcode)) { ?>postalCode: "<?php echo esc_js($billing_postcode); ?>",<?php } ?>
+                <?php if (!empty($billing_country)) { ?>country: "<?php echo esc_js($billing_country); ?>"<?php } ?>
+            },
+            <?php } ?>
+            <?php if (!empty($birthday)) { ?>birthday: "<?php echo esc_js($birthday); ?>",<?php } ?>
+            <?php if (!empty($company_name) || !empty($company_id) || !empty($company_industry) || !empty($company_employee_count) || !empty($company_plan)) { ?>
+            company: {
+                <?php if (!empty($company_name)) { ?>name: "<?php echo esc_js($company_name); ?>",<?php } ?>
+                <?php if (!empty($company_id)) { ?>id: "<?php echo esc_js($company_id); ?>",<?php } ?>
+                <?php if (!empty($company_industry)) { ?>industry: "<?php echo esc_js($company_industry); ?>",<?php } ?>
+                <?php if (!empty($company_employee_count)) { ?>employee_count: <?php echo intval($company_employee_count); ?>,<?php } ?>
+                <?php if (!empty($company_plan)) { ?>plan: "<?php echo esc_js($company_plan); ?>"<?php } ?>
+            },
+            <?php } ?>
+            <?php if (!empty($created_at)) { ?>createdAt: "<?php echo esc_js($created_at); ?>",<?php } ?>
+            <?php if (!empty($description)) { ?>description: "<?php echo esc_js($description); ?>",<?php } ?>
+            <?php if (!empty($gender)) { ?>gender: "<?php echo esc_js($gender); ?>",<?php } ?>
+            <?php if (!empty($title)) { ?>title: "<?php echo esc_js($title); ?>",<?php } ?>
+            <?php if (!empty($username)) { ?>username: "<?php echo esc_js($username); ?>",<?php } ?>
+            <?php if (!empty($website)) { ?>website: "<?php echo esc_js($website); ?>",<?php } ?>
+            <?php if (!empty($avatar)) { ?>avatar: "<?php echo esc_js($avatar); ?>",<?php } ?>
+            <?php if (kepixel_is_woocommerce_installed()) { ?>
+            <?php if ($is_paying_customer) { ?>isPayingCustomer: <?php echo $is_paying_customer ? 'true' : 'false'; ?>,<?php } ?>
+            <?php if ($total_spent > 0) { ?>totalSpent: <?php echo floatval($total_spent); ?>,<?php } ?>
+            <?php if ($order_count > 0) { ?>orderCount: <?php echo intval($order_count); ?><?php } ?>
+            <?php } ?>
+        };
+        if (!traits.phone) {
+            const extractedPhone = extractPhoneNumberFlexible(traits);
+            if (extractedPhone) {
+                traits.phone = extractedPhone;
+            }
+        }
+        const options = {};
+
+        if (window.kepixelAnalytics && typeof window.kepixelAnalytics.identify === "function") {
+            window.kepixelAnalytics.identify(userId, traits, options);
+        } else {
+            window.kepixelAnalytics = window.kepixelAnalytics || [];
+            window.kepixelAnalytics.push(["identify", userId, traits, options]);
+        }
+
+        <?php
         }
         ?>
-        _paq.push(['trackPageView']);
-        _paq.push(['enableLinkTracking']);
-        (function() {
-            _paq.push(['setAppId', '<?php echo esc_js($app_id); ?>']);
-            var d=document, g=d.createElement('script'), s=d.getElementsByTagName('script')[0];
-            g.async=true; g.src='https://edge.kepixel.com/anubis.js'; s.parentNode.insertBefore(g,s);
-        })();
+
+        if (window.kepixelAnalytics && typeof window.kepixelAnalytics.page === "function") {
+            window.kepixelAnalytics.page();
+        } else {
+            window.kepixelAnalytics = window.kepixelAnalytics || [];
+            window.kepixelAnalytics.push(["page"]);
+        }
     </script>
     <!-- End kepixel Code -->
     <?php
 }
+
 add_action('wp_head', 'kepixel_add_tracking_code', 10);
 
-/**
- * Add Kepixel's e-commerce tracking script (JS) to product pages
- */
-function kepixel_add_ecommerce_tracking_to_product_pages()
-{
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
 
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    if (is_product()) {
-        global $product;
-
-        $sku = $product->get_sku();
-        $name = $product->get_name();
-        $categories = wp_get_post_terms($product->get_id(), 'product_cat');
-        $category_names = array_map(function ($term) {
-            return $term->name;
-        }, $categories);
-        $category_list = implode(', ', $category_names);
-        $price = $product->get_price();
-
-        wp_enqueue_script('kepixel-product-tracking', plugins_url('/js/kepixel-product-tracking.js', __FILE__), array('jquery'), null, true);
-
-        wp_localize_script('kepixel-product-tracking', 'wpKepixelProductData', array(
-            'sku' => esc_js($sku),
-            'name' => esc_js($name),
-            'categoryList' => esc_js($category_list),
-            'price' => esc_js($price),
-        ));
-    }
-}
-add_action('wp_head', 'kepixel_add_ecommerce_tracking_to_product_pages', 999);
-
-/**
- * Add Kepixel's e-commerce tracking script (JS) to category pages
- */
-function kepixel_add_ecommerce_tracking_to_category_pages()
-{
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    if (is_product_category()) {
-        $category = get_queried_object();
-        $category_name = $category->name;
-
-        wp_enqueue_script('kepixel-category-tracking', plugins_url('/js/kepixel-category-tracking.js', __FILE__), array('jquery'), null, true);
-
-        wp_localize_script('kepixel-category-tracking', 'wpKepixelCategoryData', array(
-            'categoryName' => esc_html($category_name),
-        ));
-    }
-}
-add_action('wp_head', 'kepixel_add_ecommerce_tracking_to_category_pages', 999);
-
-/**
- * Add Kepixel's e-commerce tracking script (JS) to cart page
- */
-function kepixel_add_tracking_to_cart_page()
-{
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    if (is_cart()) {
-        wp_enqueue_script('kepixel-cart-tracking', plugins_url('/js/kepixel-cart-tracking.js', __FILE__), array('jquery'), null, true);
-
-        $items = array();
-        foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-            $_product = apply_filters('woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key);
-            if (!is_a($_product, 'WC_Product')) continue;
-
-            $_category = wp_get_post_terms($_product->get_id(), 'product_cat');
-            $_category_name = !empty($_category) ? esc_html($_category[0]->name) : '';
-
-            $items[] = array(
-                'sku' => esc_attr($_product->get_sku()),
-                'name' => esc_html($_product->get_name()),
-                'category' => $_category_name,
-                'price' => esc_attr($_product->get_price()),
-                'quantity' => intval($cart_item['quantity']),
-            );
-        }
-
-        wp_localize_script('kepixel-cart-tracking', 'wpKepixelCartData', array(
-            'items' => $items,
-            'cartTotal' => WC()->cart->total,
-        ));
-    }
-}
-add_action('wp_head', 'kepixel_add_tracking_to_cart_page', 999);
-
-/**
- * Add Kepixel's e-commerce tracking script (JS) to order received page
- */
-function kepixel_add_tracking_to_order_received_page($order_id)
-{
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    $order = wc_get_order($order_id);
-
-    if (!$order) {
-        return;
-    }
-
-    wp_enqueue_script('kepixel-order-tracking', plugins_url('/js/kepixel-order-tracking.js', __FILE__), array('jquery'), null, true);
-
-    $items_data = array();
-    foreach ($order->get_items() as $item_id => $item) {
-        $_product = $item->get_product();
-        $_categories = wp_get_post_terms($_product->get_id(), 'product_cat');
-        $category_name = !empty($_categories) ? esc_html($_categories[0]->name) : '';
-
-        $items_data[] = array(
-            'sku' => esc_html($_product->get_sku()),
-            'name' => esc_html($item->get_name()),
-            'category_name' => $category_name,
-            'price' => esc_html($item->get_subtotal()),
-            'quantity' => esc_html($item->get_quantity()),
-        );
-    }
-
-    $order_data = array(
-        'order_number' => esc_html($order->get_order_number()),
-        'total' => esc_html($order->get_total()),
-        'subtotal' => esc_html($order->get_subtotal()),
-        'total_tax' => esc_html($order->get_total_tax()),
-        'shipping_total' => esc_html($order->get_shipping_total()),
-        'items' => $items_data,
-    );
-
-    wp_localize_script('kepixel-order-tracking', 'wpKepixelOrderData', $order_data);
-}
-add_action('woocommerce_thankyou', 'kepixel_add_tracking_to_order_received_page', 999);
-
-/**
- * Add Kepixel's e-commerce tracking script (JS) to checkout page
- */
-function kepixel_add_tracking_to_checkout_page()
-{
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    if (is_checkout() && !is_order_received_page()) {
-        wp_enqueue_script('kepixel-checkout-tracking', plugins_url('/js/kepixel-checkout-tracking.js', __FILE__), array('jquery'), null, true);
-
-        $items = array();
-        foreach (WC()->cart->get_cart() as $cart_item_key => $cart_item) {
-            $_product = apply_filters('woocommerce_cart_item_product', $cart_item['data'], $cart_item, $cart_item_key);
-            if (!is_a($_product, 'WC_Product')) continue;
-
-            $_category = wp_get_post_terms($_product->get_id(), 'product_cat');
-            $_category_name = !empty($_category) ? esc_html($_category[0]->name) : '';
-
-            $items[] = array(
-                'sku' => esc_attr($_product->get_sku()),
-                'name' => esc_html($_product->get_name()),
-                'category' => $_category_name,
-                'price' => esc_attr($_product->get_price()),
-                'quantity' => intval($cart_item['quantity']),
-            );
-        }
-
-        wp_localize_script('kepixel-checkout-tracking', 'wpKepixelCheckoutData', array(
-            'items' => $items,
-            'cartTotal' => WC()->cart->total,
-        ));
-    }
-}
-add_action('wp_head', 'kepixel_add_tracking_to_checkout_page', 999);
-
-/**
- * Track user registration
- */
-function kepixel_track_user_registration($user_id) {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    // Set a cookie to indicate that the user just registered
-    // This will be used to load the registration tracking script on the next page load
-    setcookie('kepixel_user_registered', '1', time() + 3600, '/');
-}
-add_action('user_register', 'kepixel_track_user_registration');
-
-/**
- * Add Kepixel's registration tracking script (JS) if user just registered
- */
-function kepixel_add_registration_tracking() {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    // Check if the user just registered
-    if (isset($_COOKIE['kepixel_user_registered']) && $_COOKIE['kepixel_user_registered'] === '1') {
-        wp_enqueue_script('kepixel-registration-tracking', plugins_url('/js/kepixel-registration-tracking.js', __FILE__), array('jquery'), null, true);
-
-        // Clear the cookie
-        setcookie('kepixel_user_registered', '', time() - 3600, '/');
-    }
-}
-add_action('wp_head', 'kepixel_add_registration_tracking', 999);
-
-/**
- * Add Kepixel's search tracking script (JS) to search results page
- */
-function kepixel_add_tracking_to_search_page() {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    if (is_search()) {
-        wp_enqueue_script('kepixel-search-tracking', plugins_url('/js/kepixel-search-tracking.js', __FILE__), array('jquery'), null, true);
-
-        // Get the search query
-        $search_query = get_search_query();
-
-        wp_localize_script('kepixel-search-tracking', 'wpKepixelSearchData', array(
-            'searchQuery' => esc_js($search_query),
-        ));
-    }
-}
-add_action('wp_head', 'kepixel_add_tracking_to_search_page', 999);
-
-/**
- * Add Kepixel's page tracking script (JS) to all pages
- */
-function kepixel_add_page_tracking() {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    wp_enqueue_script('kepixel-page-tracking', plugins_url('/js/kepixel-page-tracking.js', __FILE__), array('jquery'), null, true);
-
-    // Get page data
-    global $post;
-    $page_id = is_singular() ? $post->ID : '';
-    $page_name = is_singular() ? $post->post_title : '';
-
-    // Determine page category and type
-    $page_category = '';
-    $page_type = '';
-
-    if (is_front_page()) {
-        $page_category = 'home';
-        $page_type = 'home';
-    } elseif (is_page()) {
-        $page_category = 'page';
-        $page_type = 'page';
-    } elseif (is_single()) {
-        $page_category = 'post';
-        $page_type = 'post';
-
-        // Get post categories
-        $categories = get_the_category();
-        if (!empty($categories)) {
-            $page_category = $categories[0]->name;
-        }
-    } elseif (is_category()) {
-        $page_category = 'category';
-        $page_type = 'category';
-
-        // Get category name
-        $category = get_queried_object();
-        $page_name = $category->name;
-    } elseif (is_tag()) {
-        $page_category = 'tag';
-        $page_type = 'tag';
-
-        // Get tag name
-        $tag = get_queried_object();
-        $page_name = $tag->name;
-    } elseif (is_search()) {
-        $page_category = 'search';
-        $page_type = 'search';
-        $page_name = 'Search Results';
-    } elseif (is_archive()) {
-        $page_category = 'archive';
-        $page_type = 'archive';
-    } elseif (is_404()) {
-        $page_category = 'error';
-        $page_type = '404';
-        $page_name = 'Page Not Found';
-    }
-
-    wp_localize_script('kepixel-page-tracking', 'wpKepixelPageData', array(
-        'pageId' => esc_js($page_id),
-        'pageName' => esc_js($page_name),
-        'pageCategory' => esc_js($page_category),
-        'pageType' => esc_js($page_type),
-    ));
-}
-add_action('wp_head', 'kepixel_add_page_tracking', 999);
-
-/**
- * Add Kepixel's list tracking script (JS) to archive, category, and tag pages
- */
-function kepixel_add_list_tracking() {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    if (is_archive() || is_category() || is_tag() || is_tax()) {
-        wp_enqueue_script('kepixel-list-tracking', plugins_url('/js/kepixel-list-tracking.js', __FILE__), array('jquery'), null, true);
-
-        // Get list data
-        $list_id = '';
-        $list_name = '';
-        $list_category = '';
-        $list_type = '';
-
-        if (is_category()) {
-            $category = get_queried_object();
-            $list_id = 'category_' . $category->term_id;
-            $list_name = $category->name;
-            $list_category = 'category';
-            $list_type = 'category';
-        } elseif (is_tag()) {
-            $tag = get_queried_object();
-            $list_id = 'tag_' . $tag->term_id;
-            $list_name = $tag->name;
-            $list_category = 'tag';
-            $list_type = 'tag';
-        } elseif (is_tax()) {
-            $term = get_queried_object();
-            $list_id = 'tax_' . $term->term_id;
-            $list_name = $term->name;
-            $list_category = $term->taxonomy;
-            $list_type = 'taxonomy';
-        } elseif (is_author()) {
-            $author = get_queried_object();
-            $list_id = 'author_' . $author->ID;
-            $list_name = $author->display_name;
-            $list_category = 'author';
-            $list_type = 'author';
-        } elseif (is_date()) {
-            if (is_day()) {
-                $list_id = 'day_' . get_the_date('Y-m-d');
-                $list_name = get_the_date();
-                $list_category = 'day';
-                $list_type = 'date';
-            } elseif (is_month()) {
-                $list_id = 'month_' . get_the_date('Y-m');
-                $list_name = get_the_date('F Y');
-                $list_category = 'month';
-                $list_type = 'date';
-            } elseif (is_year()) {
-                $list_id = 'year_' . get_the_date('Y');
-                $list_name = get_the_date('Y');
-                $list_category = 'year';
-                $list_type = 'date';
-            }
-        } else {
-            $list_id = 'archive';
-            $list_name = 'Archive';
-            $list_category = 'archive';
-            $list_type = 'archive';
-        }
-
-        wp_localize_script('kepixel-list-tracking', 'wpKepixelListData', array(
-            'listId' => esc_js($list_id),
-            'listName' => esc_js($list_name),
-            'listCategory' => esc_js($list_category),
-            'listType' => esc_js($list_type),
-        ));
-    }
-}
-add_action('wp_head', 'kepixel_add_list_tracking', 999);
-
-/**
- * Add Kepixel's wishlist tracking script (JS) to all pages
- */
-function kepixel_add_wishlist_tracking() {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    // Load the wishlist tracking script on all pages
-    wp_enqueue_script('kepixel-wishlist-tracking', plugins_url('/js/kepixel-wishlist-tracking.js', __FILE__), array('jquery'), null, true);
-}
-add_action('wp_head', 'kepixel_add_wishlist_tracking', 999);
-
-/**
- * Add Kepixel's app tracking script (JS) to all pages
- */
-function kepixel_add_app_tracking() {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    // Load the app tracking script on all pages
-    wp_enqueue_script('kepixel-app-tracking', plugins_url('/js/kepixel-app-tracking.js', __FILE__), array('jquery'), null, true);
-}
-add_action('wp_head', 'kepixel_add_app_tracking', 999);
-
-/**
- * Add Kepixel's contact tracking script (JS) to all pages
- */
-function kepixel_add_contact_tracking() {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    // Load the contact tracking script on all pages
-    wp_enqueue_script('kepixel-contact-tracking', plugins_url('/js/kepixel-contact-tracking.js', __FILE__), array('jquery'), null, true);
-}
-add_action('wp_head', 'kepixel_add_contact_tracking', 999);
-
-/**
- * Track user login
- */
-function kepixel_track_user_login($user_login, $user) {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    // Set a cookie to indicate that the user just logged in
-    // This will be used to load the login tracking script on the next page load
-    setcookie('kepixel_user_logged_in', '1', time() + 3600, '/');
-}
-add_action('wp_login', 'kepixel_track_user_login', 10, 2);
-
-/**
- * Add Kepixel's login tracking script (JS) if user just logged in
- */
-function kepixel_add_login_tracking() {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    // Check if the user just logged in
-    if (isset($_COOKIE['kepixel_user_logged_in']) && $_COOKIE['kepixel_user_logged_in'] === '1') {
-        wp_enqueue_script('kepixel-login-tracking', plugins_url('/js/kepixel-login-tracking.js', __FILE__), array('jquery'), null, true);
-
-        // Clear the cookie
-        setcookie('kepixel_user_logged_in', '', time() - 3600, '/');
-    }
-}
-add_action('wp_head', 'kepixel_add_login_tracking', 999);
-
-/**
- * Add Kepixel's custom tracking script (JS) to all pages
- */
-function kepixel_add_custom_tracking() {
-    $enable_tracking = get_option('kepixel_enable_tracking', true);
-
-    // Only add tracking if tracking is enabled
-    if (!$enable_tracking) {
-        return;
-    }
-
-    // Load the custom tracking script on all pages
-    wp_enqueue_script('kepixel-custom-tracking', plugins_url('/js/kepixel-custom-tracking.js', __FILE__), array('jquery'), null, true);
-}
-add_action('wp_head', 'kepixel_add_custom_tracking', 999);
+require_once plugin_dir_path(__FILE__) . 'whatsapp.php'; // Include whatsapp tracking class
+require_once plugin_dir_path(__FILE__) . 'add-to-cart.php'; // Include add-to-cart tracking class
+require_once plugin_dir_path(__FILE__) . 'forms.php'; // Include forms tracking class
+require_once plugin_dir_path(__FILE__) . 'search.php'; // Include search tracking class
+require_once plugin_dir_path(__FILE__) . 'registration.php'; // Include registration tracking class
+require_once plugin_dir_path(__FILE__) . 'checkout-page.php'; // Include checkout page tracking class
+require_once plugin_dir_path(__FILE__) . 'cart-page.php'; // Include cart page tracking class
+require_once plugin_dir_path(__FILE__) . 'product-page.php'; // Include product page tracking class
+require_once plugin_dir_path(__FILE__) . 'category.php'; // Include category page tracking class
+require_once plugin_dir_path(__FILE__) . 'order-received-page.php'; // Include category page tracking class
