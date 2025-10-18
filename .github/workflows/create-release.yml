@@ -1,0 +1,52 @@
+name: Create Release on Master Push
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract plugin version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(php -r 'if (!preg_match("/^ \* Version: ([0-9.]+)/m", file_get_contents("kepixel.php"), $m)) { fwrite(STDERR, "Unable to determine plugin version\\n"); exit(1); } echo $m[1];')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check for existing release
+        id: release_check
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        if: steps.release_check.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --notes "Automated release for version $VERSION."
+
+      - name: Skip duplicate release notice
+        if: steps.release_check.outputs.exists == 'true'
+        run: echo "Release v${{ steps.version.outputs.version }} already exists. Skipping."
