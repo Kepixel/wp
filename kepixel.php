@@ -121,6 +121,167 @@ function kepixel_settings_section_callback()
 }
 
 /**
+ * Retrieve remote metadata for plugin updates.
+ *
+ * @return object|false
+ */
+function kepixel_get_remote_metadata()
+{
+    $cache_key = 'kepixel_update_metadata';
+    $metadata = get_site_transient($cache_key);
+
+    if (false === $metadata) {
+        $response = wp_remote_get('https://edge.kepixel.com/wordpress-plugin/metadata.json', array(
+                'timeout' => 15,
+                'headers' => array(
+                        'Accept' => 'application/json',
+                ),
+        ));
+
+        if (is_wp_error($response)) {
+            return false;
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        if (200 !== $code) {
+            return false;
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $decoded = json_decode($body);
+
+        if (!is_object($decoded)) {
+            return false;
+        }
+
+        $metadata = $decoded;
+        set_site_transient($cache_key, $metadata, 12 * HOUR_IN_SECONDS);
+    }
+
+    return $metadata;
+}
+
+/**
+ * Inject update information into WordPress update checks.
+ *
+ * @param object $transient
+ *
+ * @return object
+ */
+function kepixel_check_for_updates($transient)
+{
+    if (empty($transient->checked)) {
+        return $transient;
+    }
+
+    $plugin_file = plugin_basename(__FILE__);
+    $current_version = isset($transient->checked[$plugin_file]) ? $transient->checked[$plugin_file] : false;
+
+    $metadata = kepixel_get_remote_metadata();
+
+    if (!$metadata || !$current_version || empty($metadata->version)) {
+        return $transient;
+    }
+
+    if (version_compare($metadata->version, $current_version, '>')) {
+        $update = new stdClass();
+        $update->slug = 'kepixel';
+        $update->plugin = $plugin_file;
+        $update->new_version = $metadata->version;
+
+        if (!empty($metadata->download_url)) {
+            $update->package = $metadata->download_url;
+        }
+
+        if (!empty($metadata->requires)) {
+            $update->requires = $metadata->requires;
+        }
+
+        if (!empty($metadata->tested)) {
+            $update->tested = $metadata->tested;
+        }
+
+        if (!empty($metadata->requires_php)) {
+            $update->requires_php = $metadata->requires_php;
+        }
+
+        $transient->response[$plugin_file] = $update;
+    }
+
+    return $transient;
+}
+add_filter('site_transient_update_plugins', 'kepixel_check_for_updates');
+
+/**
+ * Provide plugin information in the WordPress updates UI.
+ *
+ * @param false|object|array $result
+ * @param string             $action
+ * @param object             $args
+ *
+ * @return object|false
+ */
+function kepixel_plugins_api($result, $action, $args)
+{
+    if ('plugin_information' !== $action || empty($args->slug) || 'kepixel' !== $args->slug) {
+        return $result;
+    }
+
+    $metadata = kepixel_get_remote_metadata();
+
+    if (!$metadata) {
+        return $result;
+    }
+
+    $info = new stdClass();
+    $info->name = isset($metadata->name) ? $metadata->name : 'Kepixel';
+    $info->slug = 'kepixel';
+    $info->version = isset($metadata->version) ? $metadata->version : '1.0.0';
+    $info->author = isset($metadata->author) ? $metadata->author : 'kepixel-bot';
+    $info->homepage = isset($metadata->homepage) ? $metadata->homepage : 'https://www.kepixel.com/';
+    $info->requires = isset($metadata->requires) ? $metadata->requires : '6.0';
+    $info->tested = isset($metadata->tested) ? $metadata->tested : get_bloginfo('version');
+    $info->requires_php = isset($metadata->requires_php) ? $metadata->requires_php : '7.4';
+    $info->download_link = isset($metadata->download_url) ? $metadata->download_url : '';
+
+    $sections = array();
+    if (!empty($metadata->sections) && is_object($metadata->sections)) {
+        foreach ($metadata->sections as $section => $content) {
+            $sections[$section] = $content;
+        }
+    } else {
+        $sections['description'] = __('Kepixel plugin update information is currently unavailable.', 'kepixel');
+    }
+
+    $info->sections = $sections;
+
+    if (!empty($metadata->banners) && is_object($metadata->banners)) {
+        $info->banners = (array) $metadata->banners;
+    }
+
+    return $info;
+}
+add_filter('plugins_api', 'kepixel_plugins_api', 10, 3);
+
+/**
+ * Force automatic updates for this plugin.
+ *
+ * @param bool   $update
+ * @param object $item
+ *
+ * @return bool
+ */
+function kepixel_force_auto_update($update, $item)
+{
+    if (!empty($item->plugin) && plugin_basename(__FILE__) === $item->plugin) {
+        return true;
+    }
+
+    return $update;
+}
+add_filter('auto_update_plugin', 'kepixel_force_auto_update', 10, 2);
+
+/**
  * Write Key field callback
  */
 function kepixel_write_key_callback()
