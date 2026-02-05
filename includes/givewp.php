@@ -444,11 +444,258 @@ class Kepixel_GiveWP_Form_Tracking
             return;
         }
 
-        // Track form views (Product Viewed event)
+        // Track form views for legacy forms (Product Viewed event)
         add_action('give_pre_form_output', array(__CLASS__, 'track_form_view'), 10, 1);
 
-        // Track donation form interactions
+        // Track donation form interactions (legacy forms + iframe/embed detection)
         add_action('wp_footer', array(__CLASS__, 'add_form_tracking_scripts'));
+
+        // Track GiveWP iframe/embed forms on parent page
+        add_action('wp_footer', array(__CLASS__, 'track_iframe_embed_forms'), 20);
+    }
+
+    /**
+     * Track GiveWP iframe/embed forms on the parent page
+     * This handles the new GiveWP visual form builder that uses iframes
+     */
+    public static function track_iframe_embed_forms()
+    {
+        $enable_tracking = get_option('kepixel_enable_tracking', true);
+
+        if (!$enable_tracking) {
+            return;
+        }
+
+        $currency = give_get_currency();
+
+        ?>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Kepixel GiveWP Iframe/Embed Form Detection
+                // This handles forms that are embedded via iframe (GiveWP v3 Visual Form Builder)
+
+                function trackGiveWPIframeForm(formId, formTitle) {
+                    if (!formId) return;
+
+                    // Product Viewed event for iframe forms
+                    const productViewedPayload = {
+                        product_id: String(formId),
+                        sku: "donation-" + formId,
+                        name: formTitle || "Donation Form " + formId,
+                        price: 0,
+                        currency: "<?php echo esc_js($currency); ?>",
+                        category: "Donations",
+                        url: window.location.href,
+                        content_type: "donation_form",
+                        form_id: String(formId),
+                        form_title: formTitle || "Donation Form " + formId,
+                        embed_type: "iframe"
+                    };
+
+                    if (window.kepixelAnalytics && typeof window.kepixelAnalytics.track === "function") {
+                        window.kepixelAnalytics.track("Product Viewed", productViewedPayload);
+                        console.log("[Kepixel] GiveWP iframe form tracked:", productViewedPayload);
+                    } else {
+                        window.kepixelAnalytics = window.kepixelAnalytics || [];
+                        window.kepixelAnalytics.push(["track", "Product Viewed", productViewedPayload]);
+                    }
+                }
+
+                // Track forms that have already been tracked to avoid duplicates
+                const trackedIframeForms = [];
+
+                // Method 1: Detect GiveWP embed form wrapper divs with iframes inside
+                // GiveWP v3 uses .give-embed-form-wrapper with an iframe inside
+                const giveEmbedWrappers = document.querySelectorAll(
+                    '.give-embed-form-wrapper, ' +
+                    '.givewp-embed-form-wrapper, ' +
+                    '[data-givewp-embed], ' +
+                    '.givewp-donation-form-modal, ' +
+                    '[class*="givewp-form"], ' +
+                    '[class*="give-form-wrap"]'
+                );
+
+                giveEmbedWrappers.forEach(function(wrapper) {
+                    let formId = wrapper.dataset.formId || wrapper.dataset.givewpFormId || wrapper.getAttribute('data-form-id');
+                    let formTitle = wrapper.dataset.formTitle || '';
+
+                    // Try to get form ID from inner elements
+                    if (!formId) {
+                        const formIdElement = wrapper.querySelector('[data-form-id], [data-givewp-form-id]');
+                        if (formIdElement) {
+                            formId = formIdElement.dataset.formId || formIdElement.dataset.givewpFormId;
+                        }
+                    }
+
+                    // Try to get form ID from iframe src URL inside the wrapper
+                    if (!formId) {
+                        const iframe = wrapper.querySelector('iframe');
+                        if (iframe && iframe.src) {
+                            // Pattern: /give/FORM_ID-PRICE_ID or /give/FORM_ID?...
+                            const srcMatch = iframe.src.match(/\/give\/(\d+)(?:-\d+)?/);
+                            if (srcMatch) {
+                                formId = srcMatch[1];
+                            }
+                            // Also check URL params
+                            if (!formId) {
+                                try {
+                                    const url = new URL(iframe.src);
+                                    formId = url.searchParams.get('form-id') ||
+                                             url.searchParams.get('formId') ||
+                                             url.searchParams.get('give_form_id') ||
+                                             url.searchParams.get('form_id');
+                                } catch(e) {}
+                            }
+                        }
+                    }
+
+                    if (formId && !trackedIframeForms.includes(formId)) {
+                        trackedIframeForms.push(formId);
+                        trackGiveWPIframeForm(formId, formTitle);
+                    }
+                });
+
+                // Method 2: Detect iframes with GiveWP in their src
+                const iframes = document.querySelectorAll('iframe');
+                iframes.forEach(function(iframe) {
+                    const src = iframe.src || '';
+
+                    // Check if this is a GiveWP iframe
+                    // Pattern includes: /give/FORM_ID, giveDonationFormInIframe param, etc.
+                    const isGiveWPIframe = src.includes('/give/') ||
+                                           src.includes('giveDonationFormInIframe') ||
+                                           src.includes('givewp') ||
+                                           src.includes('give-form') ||
+                                           src.includes('give_form') ||
+                                           iframe.id.includes('give') ||
+                                           iframe.className.includes('give') ||
+                                           (iframe.parentElement && iframe.parentElement.className.includes('give'));
+
+                    if (isGiveWPIframe) {
+                        // Try to extract form ID from URL
+                        let formId = null;
+                        let formTitle = '';
+
+                        // Pattern: /give/FORM_ID-PRICE_ID or /give/FORM_ID?...
+                        const pathMatch = src.match(/\/give\/(\d+)(?:-\d+)?/);
+                        if (pathMatch) {
+                            formId = pathMatch[1];
+                        }
+
+                        // Try URL params if no path match
+                        if (!formId) {
+                            try {
+                                const url = new URL(src);
+                                formId = url.searchParams.get('form-id') ||
+                                         url.searchParams.get('formId') ||
+                                         url.searchParams.get('give_form_id') ||
+                                         url.searchParams.get('form_id');
+                            } catch(e) {}
+                        }
+
+                        // Try to get from parent wrapper data attributes
+                        if (!formId) {
+                            const parent = iframe.closest('[data-form-id], [data-givewp-form-id], .give-embed-form-wrapper');
+                            if (parent) {
+                                formId = parent.dataset.formId || parent.dataset.givewpFormId;
+                                formTitle = parent.dataset.formTitle || '';
+                            }
+                        }
+
+                        // Try to extract from iframe name/id
+                        if (!formId) {
+                            const idMatch = (iframe.id + iframe.name).match(/form[_-]?(\d+)/i);
+                            if (idMatch) {
+                                formId = idMatch[1];
+                            }
+                        }
+
+                        if (formId && !trackedIframeForms.includes(formId)) {
+                            trackedIframeForms.push(formId);
+                            trackGiveWPIframeForm(formId, formTitle);
+                        }
+                    }
+                });
+
+                // Method 3: Detect GiveWP React root containers (v3 forms)
+                const giveReactRoots = document.querySelectorAll(
+                    '[id^="give-form-"], ' +
+                    '[id^="givewp-form-"], ' +
+                    '.givewp-form-container, ' +
+                    '[data-givewp-root]'
+                );
+
+                giveReactRoots.forEach(function(root) {
+                    let formId = root.dataset.formId || root.dataset.givewpFormId;
+
+                    // Try to extract from ID
+                    if (!formId) {
+                        const idMatch = root.id.match(/(?:give|givewp)-form-(\d+)/i);
+                        if (idMatch) {
+                            formId = idMatch[1];
+                        }
+                    }
+
+                    if (formId && !trackedIframeForms.includes(formId)) {
+                        trackedIframeForms.push(formId);
+                        trackGiveWPIframeForm(formId, '');
+                    }
+                });
+
+                // Method 4: Watch for dynamically added GiveWP elements
+                const observer = new MutationObserver(function(mutations) {
+                    mutations.forEach(function(mutation) {
+                        mutation.addedNodes.forEach(function(node) {
+                            if (node.nodeType !== 1) return; // Not an element
+
+                            // Check if it's a GiveWP iframe
+                            if (node.tagName === 'IFRAME') {
+                                const src = node.src || '';
+                                if (src.includes('/give/') || src.includes('giveDonationFormInIframe')) {
+                                    const pathMatch = src.match(/\/give\/(\d+)(?:-\d+)?/);
+                                    if (pathMatch) {
+                                        const formId = pathMatch[1];
+                                        if (!trackedIframeForms.includes(formId)) {
+                                            trackedIframeForms.push(formId);
+                                            trackGiveWPIframeForm(formId, '');
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Check for GiveWP containers
+                            if (node.matches && (node.matches('[data-givewp-embed]') || node.matches('.givewp-form-container') || node.matches('.give-embed-form-wrapper'))) {
+                                let formId = node.dataset.formId || node.dataset.givewpFormId;
+
+                                // Check for iframe inside
+                                if (!formId) {
+                                    const iframe = node.querySelector('iframe');
+                                    if (iframe && iframe.src) {
+                                        const srcMatch = iframe.src.match(/\/give\/(\d+)(?:-\d+)?/);
+                                        if (srcMatch) {
+                                            formId = srcMatch[1];
+                                        }
+                                    }
+                                }
+
+                                if (formId && !trackedIframeForms.includes(formId)) {
+                                    trackedIframeForms.push(formId);
+                                    trackGiveWPIframeForm(formId, '');
+                                }
+                            }
+                        });
+                    });
+                });
+
+                observer.observe(document.body, { childList: true, subtree: true });
+
+                // Disconnect after 30 seconds to prevent memory leaks
+                setTimeout(function() {
+                    observer.disconnect();
+                }, 30000);
+            });
+        </script>
+        <?php
     }
 
     /**
