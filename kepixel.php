@@ -4,7 +4,7 @@ defined('ABSPATH') || die();
 /**
  * Plugin Name: Kepixel
  * Description: Kepixel is an analytics, statistics plugin for WordPress and eCommerce tracking with WooCommerce. Optimize your sales with powerful analytics!
- * Version: 1.0.2
+ * Version: 1.0.3
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: kepixel-bot
@@ -316,6 +316,15 @@ function kepixel_is_cf7_installed()
 {
     include_once(ABSPATH . 'wp-admin/includes/plugin.php');
     return is_plugin_active('contact-form-7/wp-contact-form-7.php');
+}
+
+/**
+ * Check if GiveWP is installed and activated
+ */
+function kepixel_is_givewp_installed()
+{
+    include_once(ABSPATH . 'wp-admin/includes/plugin.php');
+    return is_plugin_active('give/give.php');
 }
 
 /**
