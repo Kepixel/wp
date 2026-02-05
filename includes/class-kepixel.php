@@ -223,3 +223,4 @@ require_once plugin_dir_path(__FILE__) . 'cart-page.php'; // Include cart page t
 require_once plugin_dir_path(__FILE__) . 'product-page.php'; // Include product page tracking class
 require_once plugin_dir_path(__FILE__) . 'category.php'; // Include category page tracking class
 require_once plugin_dir_path(__FILE__) . 'order-received-page.php'; // Include order received tracking class
+require_once plugin_dir_path(__FILE__) . 'givewp.php'; // Include GiveWP donation tracking class
